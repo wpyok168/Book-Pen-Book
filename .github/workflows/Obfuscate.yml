@@ -7,117 +7,195 @@ on:
     - cron: '0 1 * * *'  # 每天凌晨1点自动运行
   workflow_dispatch:     # 添加手动触发选项
 
+env:
+  NODE_VERSION: '20'    # 固定 Node.js 版本
+  OUTPUT_FILE: '_worker.js'
+  SOURCE_FILE: 'origin.js'
+
 permissions:
   contents: write
 
 jobs:
-  build:
-    name: 🛠️ Build and Obfuscate BPB Panel
+  build-and-obfuscate:
+    name: 🛠️ 构建和混淆 Worker
     runs-on: ubuntu-latest
+    
     steps:
-      # 代码检出
-      - name: 📥 Checkout repository
+      # 第一步：准备环境
+      - name: 📥 检出代码仓库
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      # 缓存设置
-      - name: 💾 Cache npm dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-npm-
-
-      # 环境设置
-      - name: ⚙️ Setup Node.js environment
+      - name: ⚙️ 设置 Node.js 环境
         uses: actions/setup-node@v4
         with:
-          node-version: "latest"
-          cache: 'npm'
+          node-version: ${{ env.NODE_VERSION }}
 
-      # 依赖安装
-      - name: 📦 Install dependencies
+      # 第二步：安装必要工具
+      - name: 🛠️ 安装系统工具
         run: |
-          echo "Installing required packages..."
-          for i in {1..3}; do 
-            npm install -g javascript-obfuscator && break || sleep 5
+          echo "安装必要的系统工具..."
+          sudo apt-get update
+          sudo apt-get install -y jq curl wget
+          echo "✅ 系统工具安装完成"
+
+      - name: 🔧 安装 JavaScript 混淆工具
+        run: |
+          echo "开始安装 javascript-obfuscator..."
+          max_retries=3
+          for i in $(seq 1 $max_retries); do
+            echo "尝试安装 (第 $i/$max_retries 次)..."
+            if npm install -g javascript-obfuscator; then
+              echo "✅ javascript-obfuscator 安装成功"
+              break
+            else
+              echo "❌ 安装失败，5秒后重试..."
+              sleep 5
+            fi
+            if [ $i -eq $max_retries ]; then
+              echo "❌ 所有重试次数已用完，安装失败"
+              exit 1
+            fi
           done
           
-          echo "Installing system dependencies..."
-          sudo apt-get update
-          sudo apt-get install -y jq
-          
-          echo "Verification:"
+          # 验证安装并显示版本信息
+          echo "验证安装版本:"
           javascript-obfuscator --version
-          jq --version
 
-      # 文件下载
-      - name: 🌐 Download latest worker.js
+      # 第三步：获取源文件
+      - name: 🌐 获取最新 Worker 文件
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: 'bia-pain-bache/BPB-Worker-Panel'
         run: |
-          echo "Fetching latest release information..."
+          echo "🔄 正在从仓库 $REPO 获取最新发布版本..."
+          
+          # 获取发布信息
           RELEASE_INFO=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-            "https://api.github.com/repos/bia-pain-bache/BPB-Worker-Panel/releases/latest")
+            "https://api.github.com/repos/$REPO/releases/latest")
           
-          RELEASE_TAG=$(echo "$RELEASE_INFO" | jq -r '.tag_name')
-          DOWNLOAD_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name == "worker.js") | .browser_download_url')
-          
-          echo "📦 Latest Release: $RELEASE_TAG"
-          echo "🔗 Download URL: $DOWNLOAD_URL"
-          
-          if [ -z "$DOWNLOAD_URL" ]; then
-            echo "❌ Error: Could not find worker.js in latest release"
+          if [ $? -ne 0 ]; then
+            echo "❌ 获取发布信息失败"
             exit 1
           fi
           
-          echo "Downloading worker.js..."
-          wget -q --show-progress -O origin.js "$DOWNLOAD_URL"
+          RELEASE_TAG=$(echo "$RELEASE_INFO" | jq -r '.tag_name')
+          RELEASE_NAME=$(echo "$RELEASE_INFO" | jq -r '.name')
           
-          echo "📁 File details:"
-          ls -lh origin.js
-          echo "🔍 First 10 lines:"
-          head -n 10 origin.js
+          echo "🎯 最新版本: $RELEASE_NAME ($RELEASE_TAG)"
+          
+          # 查找 worker.js 下载链接
+          DOWNLOAD_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name == "worker.js") | .browser_download_url')
+          
+          if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" = "null" ]; then
+            echo "❌ 错误: 在最新发布中找不到 worker.js 文件"
+            echo "📋 可用的资源文件:"
+            echo "$RELEASE_INFO" | jq -r '.assets[].name' || echo "无可用资源"
+            exit 1
+          fi
+          
+          echo "📥 下载地址: $DOWNLOAD_URL"
+          echo "💾 保存为: $SOURCE_FILE"
+          
+          # 下载文件
+          echo "开始下载文件..."
+          wget -O "$SOURCE_FILE" "$DOWNLOAD_URL"
+          
+          # 验证文件
+          if [ ! -f "$SOURCE_FILE" ]; then
+            echo "❌ 错误: 文件下载失败"
+            exit 1
+          fi
+          
+          if [ ! -s "$SOURCE_FILE" ]; then
+            echo "❌ 错误: 下载的文件为空"
+            exit 1
+          fi
+          
+          echo "✅ 文件下载成功"
+          echo "📊 文件详细信息:"
+          ls -lh "$SOURCE_FILE"
+          echo "📄 文件预览 (前5行):"
+          head -n 5 "$SOURCE_FILE"
 
-      # 代码混淆
-      - name: 🔒 Obfuscate BPB worker
+      # 第四步：代码混淆（使用最基本的兼容配置）
+      - name: 🛡️ 混淆 Worker 代码
         run: |
-          echo "Starting obfuscation process..."
-          javascript-obfuscator origin.js \
-            --output _worker.js \
+          echo "🛡️ 开始代码混淆处理..."
+          
+          if [ ! -f "$SOURCE_FILE" ]; then
+            echo "❌ 错误: 源文件 $SOURCE_FILE 不存在"
+            exit 1
+          fi
+          
+          echo "📁 源文件大小: $(du -h "$SOURCE_FILE" | cut -f1)"
+          echo "🔧 执行混淆..."
+          
+          # 使用最基本且兼容的混淆配置
+          javascript-obfuscator "$SOURCE_FILE" \
+            --output "$OUTPUT_FILE" \
             --compact true \
             --identifier-names-generator hexadecimal \
             --string-array true \
             --string-array-threshold 0.5 \
             --simplify true
           
-          echo "📊 Obfuscation completed:"
-          echo "📁 Output file details:"
-          ls -lh _worker.js
-          echo "🔍 First 10 lines of obfuscated code:"
-          head -n 10 _worker.js
+          if [ $? -ne 0 ]; then
+            echo "❌ 混淆处理失败"
+            exit 1
+          fi
+          
+          if [ ! -f "$OUTPUT_FILE" ]; then
+            echo "❌ 错误: 输出文件未生成"
+            exit 1
+          fi
+          
+          echo "✅ 混淆完成"
+          echo "📊 输出文件信息:"
+          ls -lh "$OUTPUT_FILE"
           
           # 文件大小检查
-          FILE_SIZE=$(stat -f %z _worker.js 2>/dev/null || stat -c %s _worker.js)
-          echo "📏 File size: $FILE_SIZE bytes"
+          FILE_SIZE=$(stat -c %s "$OUTPUT_FILE" 2>/dev/null || stat -f %z "$OUTPUT_FILE")
+          FILE_SIZE_KB=$((FILE_SIZE/1024))
+          
+          echo "📏 文件大小: $FILE_SIZE 字节 (${FILE_SIZE_KB} KB)"
           
           if [ "$FILE_SIZE" -gt 500000 ]; then
-            echo "⚠️  Warning: _worker.js size exceeds 500KB, may cause Cloudflare CPU limit errors"
+            echo "⚠️  警告: 输出文件大小超过 500KB，可能导致 Cloudflare CPU 限制错误"
           else
-            echo "✅ File size within acceptable limits"
+            echo "✅ 文件大小在安全范围内"
           fi
 
-      # 提交更改
-      - name: 📝 Commit changes
+      # 第五步：提交更改（提交 origin.js 和 _worker.js）
+      - name: ✅ 提交混淆结果
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           branch: main
           commit_message: |
-            :arrow_up: chore: update latest BPB panel
-            - Automated update from latest release
-            - Obfuscated worker script
+            :arrow_up: chore: 自动更新 BPB Panel 版本
+            
+            - 同步最新 Worker 源文件
+            - 完成代码混淆处理
+            - 源文件: ${{ env.SOURCE_FILE }}
+            - 混淆文件: ${{ env.OUTPUT_FILE }}
+            - 输出文件大小: ${FILE_SIZE_KB} KB
+            - 版本: $RELEASE_TAG
           commit_author: 'github-actions[bot] <github-actions[bot]@users.noreply.github.com>'
-          commit_user_email: 'github-actions[bot]@users.noreply.github.com'
-          commit_options: '--signoff'
+          file_pattern: |
+            _worker.js
+            origin.js
+
+      # 第六步：完成通知
+      - name: 🎉 构建完成总结
+        run: |
+          echo "========================================"
+          echo "🎉 BPB Panel 构建完成!"
+          echo "========================================"
+          echo "📁 源文件: $SOURCE_FILE"
+          echo "📁 混淆文件: $OUTPUT_FILE" 
+          echo "📏 文件大小: $FILE_SIZE_KB KB"
+          echo "🏷️ 版本: $RELEASE_TAG"
+          echo "🕒 完成时间: $(date)"
+          echo "✅ 所有步骤执行成功"
+          echo "========================================"
