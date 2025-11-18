@@ -167,17 +167,20 @@ jobs:
             echo "✅ 文件大小在安全范围内"
           fi
 
-      # 第五步：提交更改
+      # 第五步：提交更改（提交 origin.js 和 _worker.js）
       - name: ✅ 提交混淆结果
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           branch: main
           commit_message: |
-            :arrow_up: chore: 自动更新 BPB Panel 混淆版本
+            :arrow_up: chore: 自动更新 BPB Panel 版本
             
-            - 自动同步最新 Worker 文件
+            - 同步最新 Worker 源文件
             - 完成代码混淆处理
+            - 源文件: ${{ env.SOURCE_FILE }}
+            - 混淆文件: ${{ env.OUTPUT_FILE }}
             - 输出文件大小: ${FILE_SIZE_KB} KB
+            - 版本: $RELEASE_TAG
           commit_author: 'github-actions[bot] <github-actions[bot]@users.noreply.github.com>'
           file_pattern: |
             _worker.js
@@ -187,11 +190,12 @@ jobs:
       - name: 🎉 构建完成总结
         run: |
           echo "========================================"
-          echo "🎉 BPB Panel 混淆构建完成!"
+          echo "🎉 BPB Panel 构建完成!"
           echo "========================================"
-          echo "📁 输入文件: $SOURCE_FILE"
-          echo "📁 输出文件: $OUTPUT_FILE" 
+          echo "📁 源文件: $SOURCE_FILE"
+          echo "📁 混淆文件: $OUTPUT_FILE" 
           echo "📏 文件大小: $FILE_SIZE_KB KB"
+          echo "🏷️ 版本: $RELEASE_TAG"
           echo "🕒 完成时间: $(date)"
           echo "✅ 所有步骤执行成功"
           echo "========================================"
