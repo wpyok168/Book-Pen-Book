@@ -167,7 +167,25 @@ jobs:
             echo "✅ 文件大小在安全范围内"
           fi
 
-      # 第五步：提交更改（提交 origin.js 和 _worker.js）
+      # 第五步：手动添加并提交文件
+      - name: 📝 手动添加文件到 Git
+        run: |
+          echo "将文件添加到 Git 暂存区..."
+          git config --local user.email "actions@github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # 添加 origin.js 和 _worker.js 到 Git
+          git add "$SOURCE_FILE" "$OUTPUT_FILE"
+          
+          # 检查文件是否已添加
+          echo "已暂存的文件:"
+          git status --porcelain
+          
+          # 检查文件是否存在
+          echo "文件存在性检查:"
+          ls -la "$SOURCE_FILE" "$OUTPUT_FILE" 2>/dev/null || echo "某些文件不存在"
+
+      # 第六步：提交更改
       - name: ✅ 提交混淆结果
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
@@ -175,18 +193,16 @@ jobs:
           commit_message: |
             :arrow_up: chore: 自动更新 BPB Panel 版本
             
-            - 同步最新 Worker 源文件
-            - 完成代码混淆处理
-            - 源文件: ${{ env.SOURCE_FILE }}
-            - 混淆文件: ${{ env.OUTPUT_FILE }}
+            - 同步最新 Worker 源文件: ${{ env.SOURCE_FILE }}
+            - 完成代码混淆处理: ${{ env.OUTPUT_FILE }}
             - 输出文件大小: ${FILE_SIZE_KB} KB
             - 版本: $RELEASE_TAG
           commit_author: 'github-actions[bot] <github-actions[bot]@users.noreply.github.com>'
-          file_pattern: |
-            _worker.js
-            origin.js
+          commit_user_email: 'actions@github.com'
+          # 不指定 file_pattern，让 action 自动检测所有更改
+          skip_fetch: true
 
-      # 第六步：完成通知
+      # 第七步：完成通知
       - name: 🎉 构建完成总结
         run: |
           echo "========================================"
@@ -194,7 +210,7 @@ jobs:
           echo "========================================"
           echo "📁 源文件: $SOURCE_FILE"
           echo "📁 混淆文件: $OUTPUT_FILE" 
-          echo "📏 文件大小: $FILE_SIZE_KB KB"
+          echo "📏 混淆文件大小: $FILE_SIZE_KB KB"
           echo "🏷️ 版本: $RELEASE_TAG"
           echo "🕒 完成时间: $(date)"
           echo "✅ 所有步骤执行成功"
