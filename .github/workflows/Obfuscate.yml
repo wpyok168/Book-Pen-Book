@@ -1,80 +1,178 @@
-name: Build Obfuscate BPB Panel
+name: 🔧 Build Obfuscate BPB Panel
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   schedule:
-    - cron: "0 1 * * *"
+    - cron: '0 1 * * *'  # 每天凌晨1点自动运行
+  workflow_dispatch:     # 添加手动触发选项
+
+env:
+  NODE_VERSION: '20'    # 固定 Node.js 版本
+  OUTPUT_FILE: '_worker.js'
+  SOURCE_FILE: 'origin.js'
 
 permissions:
   contents: write
+  packages: read
 
 jobs:
-  build:
+  build-and-obfuscate:
+    name: 🛠️ 构建和混淆 Worker
     runs-on: ubuntu-latest
-
+    
     steps:
-      - name: Check out the code
+      # 第一步：准备环境
+      - name: 📥 检出代码仓库
         uses: actions/checkout@v4
-
-      - name: Cache npm
-        uses: actions/cache@v4
         with:
-          path: ~/.npm
-          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-npm-
+          fetch-depth: 1
 
-      - name: Set up Node.js
+      - name: 💾 设置 npm 缓存
+        uses: actions/cache@v4
+        id: npm-cache
+        with:
+          path: |
+            ~/.npm
+            node_modules
+          key: ${{ runner.os }}-node-${{ env.NODE_VERSION }}-npm-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.NODE_VERSION }}-npm-
+
+      - name: ⚙️ 设置 Node.js 环境
         uses: actions/setup-node@v4
         with:
-          node-version: "latest"
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
 
-      - name: Install dependencies
+      # 第二步：安装依赖
+      - name: 📦 安装系统依赖
         run: |
-          for i in {1..3}; do npm install -g javascript-obfuscator && break || sleep 5; done
-          javascript-obfuscator --version
           sudo apt-get update
-          sudo apt-get install -y jq
+          sudo apt-get install -y jq curl wget
 
-      - name: Fetch and download latest worker.js from release
+      - name: 🔧 安装 JavaScript 混淆工具
+        run: |
+          max_retries=3
+          for i in $(seq 1 $max_retries); do
+            echo "尝试安装 javascript-obfuscator (第 $i 次)..."
+            if npm install -g javascript-obfuscator; then
+              echo "✅ 安装成功"
+              break
+            else
+              echo "❌ 安装失败，5秒后重试..."
+              sleep 5
+            fi
+          done
+          javascript-obfuscator --version
+
+      # 第三步：获取源文件
+      - name: 🌐 获取最新 Worker 文件
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: 'bia-pain-bache/BPB-Worker-Panel'
         run: |
-          RELEASE_INFO=$(curl -s -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/repos/bia-pain-bache/BPB-Worker-Panel/releases/latest)
+          echo "正在从仓库 $REPO 获取最新发布版本..."
+          
+          # 获取发布信息
+          RELEASE_INFO=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            "https://api.github.com/repos/$REPO/releases/latest")
+          
           RELEASE_TAG=$(echo "$RELEASE_INFO" | jq -r '.tag_name')
-          echo "Latest Release: $RELEASE_TAG"
+          RELEASE_NAME=$(echo "$RELEASE_INFO" | jq -r '.name')
+          
+          echo "🎯 最新版本: $RELEASE_NAME ($RELEASE_TAG)"
+          
+          # 查找 worker.js 下载链接
           DOWNLOAD_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name == "worker.js") | .browser_download_url')
-          if [ -z "$DOWNLOAD_URL" ]; then
-            echo "Error: Could not find worker.js in latest release"
+          
+          if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" = "null" ]; then
+            echo "❌ 错误: 在最新发布中找不到 worker.js 文件"
+            echo "可用资源文件:"
+            echo "$RELEASE_INFO" | jq -r '.assets[].name'
             exit 1
           fi
-          echo "Downloading from: $DOWNLOAD_URL"
-          wget -O origin.js "$DOWNLOAD_URL"
-          ls -l origin.js
-          head -n 10 origin.js
+          
+          echo "📥 下载地址: $DOWNLOAD_URL"
+          echo "保存为: $SOURCE_FILE"
+          
+          # 下载文件
+          wget -q --show-progress -O "$SOURCE_FILE" "$DOWNLOAD_URL"
+          
+          # 验证文件
+          if [ ! -s "$SOURCE_FILE" ]; then
+            echo "❌ 错误: 下载的文件为空"
+            exit 1
+          fi
+          
+          echo "✅ 文件下载成功"
+          echo "📊 文件信息:"
+          ls -lh "$SOURCE_FILE"
+          echo "📄 文件前10行内容:"
+          head -n 10 "$SOURCE_FILE"
 
-      - name: Obfuscate BPB worker js
+      # 第四步：代码混淆
+      - name: 🛡️ 混淆 Worker 代码
         run: |
-          javascript-obfuscator origin.js --output _worker.js \
+          echo "开始代码混淆处理..."
+          
+          javascript-obfuscator "$SOURCE_FILE" \
+            --output "$OUTPUT_FILE" \
             --compact true \
-            --identifier-names-generator hexadecimal \
+            --control-flow-flattening true \
+            --control-flow-flattening-threshold 0.75 \
+            --numbers-to-expressions true \
+            --simplify true \
+            --shuffle-string-array true \
+            --split-strings true \
+            --split-strings-chunk-length 10 \
             --string-array true \
-            --string-array-threshold 0.5 \
-            --simplify true
-          ls -l _worker.js
-          head -n 10 _worker.js
-          # Check file size (in bytes)
-          FILE_SIZE=$(stat -f %z _worker.js || stat -c %s _worker.js)
-          echo "Output file size: $FILE_SIZE bytes"
+            --string-array-indexes-type hexadecimal \
+            --string-array-encoding rc4 \
+            --string-array-threshold 0.75 \
+            --identifier-names-generator hexadecimal \
+            --transform-object-keys true
+          
+          echo "✅ 混淆完成"
+          echo "📊 输出文件信息:"
+          ls -lh "$OUTPUT_FILE"
+          
+          # 显示文件前10行
+          echo "📄 混淆后文件前10行:"
+          head -n 10 "$OUTPUT_FILE"
+          
+          # 文件大小检查
+          FILE_SIZE=$(stat -c %s "$OUTPUT_FILE" 2>/dev/null || stat -f %z "$OUTPUT_FILE")
+          echo "📏 文件大小: $FILE_SIZE 字节 ($((FILE_SIZE/1024)) KB)"
+          
           if [ "$FILE_SIZE" -gt 500000 ]; then
-            echo "Warning: _worker.js size exceeds 500KB, may cause Cloudflare CPU limit errors"
+            echo "⚠️  警告: $OUTPUT_FILE 文件大小超过 500KB，可能导致 Cloudflare CPU 限制错误"
+          else
+            echo "✅ 文件大小在安全范围内"
           fi
 
-      - name: Commit changes
+      # 第五步：提交更改
+      - name: ✅ 提交混淆结果
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           branch: main
-          commit_message: ':arrow_up: update latest bpb panel'
+          commit_message: |
+            :arrow_up: 更新 BPB Panel 混淆版本
+            - 自动更新最新 Worker 文件
+            - 代码混淆处理完成
+            - 文件大小: $((FILE_SIZE/1024)) KB
           commit_author: 'github-actions[bot] <github-actions[bot]@users.noreply.github.com>'
+          commit_user_email: 'actions@github.com'
+          file_pattern: '**/_worker.js'
+          skip_fetch: true
+
+      # 第六步：完成通知
+      - name: 🎉 构建完成
+        run: |
+          echo "========================================"
+          echo "✅ BPB Panel 混淆构建完成!"
+          echo "📁 输入文件: $SOURCE_FILE"
+          echo "📁 输出文件: $OUTPUT_FILE"
+          echo "📏 文件大小: $((FILE_SIZE/1024)) KB"
+          echo "🕒 完成时间: $(date)"
+          echo "========================================"
