@@ -31,7 +31,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'  # 移除缓存依赖，因为不需要 package.json
+          # 完全移除 cache 配置
 
       # 第二步：安装必要工具
       - name: 🛠️ 安装系统工具
@@ -101,7 +101,7 @@ jobs:
           
           # 下载文件
           echo "开始下载文件..."
-          wget --progress=bar:force -O "$SOURCE_FILE" "$DOWNLOAD_URL" 2>&1 | tail -n 10
+          wget -O "$SOURCE_FILE" "$DOWNLOAD_URL"
           
           # 验证文件
           if [ ! -f "$SOURCE_FILE" ]; then
@@ -136,32 +136,13 @@ jobs:
           javascript-obfuscator "$SOURCE_FILE" \
             --output "$OUTPUT_FILE" \
             --compact true \
-            --control-flow-flattening false \
-            --dead-code-injection false \
-            --debug-protection false \
-            --debug-protection-interval false \
-            --disable-console-output false \
             --identifier-names-generator hexadecimal \
-            --log false \
-            --numbers-to-expressions true \
-            --rename-globals false \
-            --rotate-string-array true \
-            --self-defending false \
-            --shuffle-string-array true \
+            --string-array true \
+            --string-array-threshold 0.75 \
             --simplify true \
             --split-strings true \
             --split-strings-chunk-length 10 \
-            --string-array true \
-            --string-array-encoding false \
-            --string-array-index-shift true \
-            --string-array-indexes-type hexadecimal \
-            --string-array-threshold 0.75 \
-            --string-array-wrappers-count 1 \
-            --string-array-wrappers-chained-calls true \
-            --string-array-wrappers-parameters-max-count 2 \
-            --string-array-wrappers-type variable \
-            --transform-object-keys true \
-            --unicode-escape-sequence false
+            --shuffle-string-array true
           
           if [ $? -ne 0 ]; then
             echo "❌ 混淆处理失败"
@@ -183,9 +164,6 @@ jobs:
           else
             echo "✅ 文件大小在安全范围内"
           fi
-          
-          echo "📄 混淆后文件预览 (前3行):"
-          head -n 3 "$OUTPUT_FILE"
 
       # 第五步：提交更改
       - name: ✅ 提交混淆结果
@@ -198,14 +176,10 @@ jobs:
             - 自动同步最新 Worker 文件
             - 完成代码混淆处理
             - 输出文件大小: ${FILE_SIZE_KB} KB
-            - 构建时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')
           commit_author: 'github-actions[bot] <github-actions[bot]@users.noreply.github.com>'
-          commit_user_email: 'actions@github.com'
           file_pattern: |
             _worker.js
             origin.js
-          skip_fetch: false
-          status_options: '--untracked-files=no'
 
       # 第六步：完成通知
       - name: 🎉 构建完成总结
