@@ -8,7 +8,7 @@ on:
   workflow_dispatch:     # 添加手动触发选项
 
 env:
-  NODE_VERSION: '20'    # 固定 Node.js 版本
+  NODE_VERSION: 'latest'    # 固定 Node.js 版本 '20'
   OUTPUT_FILE: '_worker.js'
   SOURCE_FILE: 'origin.js'
 
