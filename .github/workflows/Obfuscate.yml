@@ -6,6 +6,7 @@ on:
       - main
   schedule:
     - cron: "0 1 * * *"
+    workflow_dispatch:     # 添加手动触发选项
 
 permissions:
   contents: write
