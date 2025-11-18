@@ -1,12 +1,11 @@
-name: Build Obfuscate BPB Panel
+name: 🔧 Build Obfuscate BPB Panel
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   schedule:
-    - cron: "0 1 * * *"
-    workflow_dispatch:     # 添加手动触发选项
+    - cron: '0 1 * * *'  # 每天凌晨1点自动运行
+  workflow_dispatch:     # 添加手动触发选项
 
 permissions:
   contents: write
