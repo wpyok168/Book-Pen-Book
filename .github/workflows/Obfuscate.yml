@@ -14,7 +14,6 @@ env:
 
 permissions:
   contents: write
-  packages: read
 
 jobs:
   build-and-obfuscate:
@@ -28,42 +27,41 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: 💾 设置 npm 缓存
-        uses: actions/cache@v4
-        id: npm-cache
-        with:
-          path: |
-            ~/.npm
-            node_modules
-          key: ${{ runner.os }}-node-${{ env.NODE_VERSION }}-npm-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ env.NODE_VERSION }}-npm-
-
       - name: ⚙️ 设置 Node.js 环境
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+          cache: 'npm'  # 移除缓存依赖，因为不需要 package.json
 
-      # 第二步：安装依赖
-      - name: 📦 安装系统依赖
+      # 第二步：安装必要工具
+      - name: 🛠️ 安装系统工具
         run: |
+          echo "安装必要的系统工具..."
           sudo apt-get update
           sudo apt-get install -y jq curl wget
+          echo "✅ 系统工具安装完成"
 
       - name: 🔧 安装 JavaScript 混淆工具
         run: |
+          echo "开始安装 javascript-obfuscator..."
           max_retries=3
           for i in $(seq 1 $max_retries); do
-            echo "尝试安装 javascript-obfuscator (第 $i 次)..."
+            echo "尝试安装 (第 $i/$max_retries 次)..."
             if npm install -g javascript-obfuscator; then
-              echo "✅ 安装成功"
+              echo "✅ javascript-obfuscator 安装成功"
               break
             else
               echo "❌ 安装失败，5秒后重试..."
               sleep 5
             fi
+            if [ $i -eq $max_retries ]; then
+              echo "❌ 所有重试次数已用完，安装失败"
+              exit 1
+            fi
           done
+          
+          # 验证安装
+          echo "验证安装版本:"
           javascript-obfuscator --version
 
       # 第三步：获取源文件
@@ -72,11 +70,16 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: 'bia-pain-bache/BPB-Worker-Panel'
         run: |
-          echo "正在从仓库 $REPO 获取最新发布版本..."
+          echo "🔄 正在从仓库 $REPO 获取最新发布版本..."
           
           # 获取发布信息
           RELEASE_INFO=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
             "https://api.github.com/repos/$REPO/releases/latest")
+          
+          if [ $? -ne 0 ]; then
+            echo "❌ 获取发布信息失败"
+            exit 1
+          fi
           
           RELEASE_TAG=$(echo "$RELEASE_INFO" | jq -r '.tag_name')
           RELEASE_NAME=$(echo "$RELEASE_INFO" | jq -r '.name')
@@ -88,68 +91,101 @@ jobs:
           
           if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" = "null" ]; then
             echo "❌ 错误: 在最新发布中找不到 worker.js 文件"
-            echo "可用资源文件:"
-            echo "$RELEASE_INFO" | jq -r '.assets[].name'
+            echo "📋 可用的资源文件:"
+            echo "$RELEASE_INFO" | jq -r '.assets[].name' || echo "无可用资源"
             exit 1
           fi
           
           echo "📥 下载地址: $DOWNLOAD_URL"
-          echo "保存为: $SOURCE_FILE"
+          echo "💾 保存为: $SOURCE_FILE"
           
           # 下载文件
-          wget -q --show-progress -O "$SOURCE_FILE" "$DOWNLOAD_URL"
+          echo "开始下载文件..."
+          wget --progress=bar:force -O "$SOURCE_FILE" "$DOWNLOAD_URL" 2>&1 | tail -n 10
           
           # 验证文件
+          if [ ! -f "$SOURCE_FILE" ]; then
+            echo "❌ 错误: 文件下载失败"
+            exit 1
+          fi
+          
           if [ ! -s "$SOURCE_FILE" ]; then
             echo "❌ 错误: 下载的文件为空"
             exit 1
           fi
           
           echo "✅ 文件下载成功"
-          echo "📊 文件信息:"
+          echo "📊 文件详细信息:"
           ls -lh "$SOURCE_FILE"
-          echo "📄 文件前10行内容:"
-          head -n 10 "$SOURCE_FILE"
+          echo "📄 文件预览 (前5行):"
+          head -n 5 "$SOURCE_FILE"
 
       # 第四步：代码混淆
       - name: 🛡️ 混淆 Worker 代码
         run: |
-          echo "开始代码混淆处理..."
+          echo "🛡️ 开始代码混淆处理..."
+          
+          if [ ! -f "$SOURCE_FILE" ]; then
+            echo "❌ 错误: 源文件 $SOURCE_FILE 不存在"
+            exit 1
+          fi
+          
+          echo "📁 源文件大小: $(du -h "$SOURCE_FILE" | cut -f1)"
+          echo "🔧 执行混淆..."
           
           javascript-obfuscator "$SOURCE_FILE" \
             --output "$OUTPUT_FILE" \
             --compact true \
-            --control-flow-flattening true \
-            --control-flow-flattening-threshold 0.75 \
+            --control-flow-flattening false \
+            --dead-code-injection false \
+            --debug-protection false \
+            --debug-protection-interval false \
+            --disable-console-output false \
+            --identifier-names-generator hexadecimal \
+            --log false \
             --numbers-to-expressions true \
-            --simplify true \
+            --rename-globals false \
+            --rotate-string-array true \
+            --self-defending false \
             --shuffle-string-array true \
+            --simplify true \
             --split-strings true \
             --split-strings-chunk-length 10 \
             --string-array true \
+            --string-array-encoding false \
+            --string-array-index-shift true \
             --string-array-indexes-type hexadecimal \
-            --string-array-encoding rc4 \
             --string-array-threshold 0.75 \
-            --identifier-names-generator hexadecimal \
-            --transform-object-keys true
+            --string-array-wrappers-count 1 \
+            --string-array-wrappers-chained-calls true \
+            --string-array-wrappers-parameters-max-count 2 \
+            --string-array-wrappers-type variable \
+            --transform-object-keys true \
+            --unicode-escape-sequence false
+          
+          if [ $? -ne 0 ]; then
+            echo "❌ 混淆处理失败"
+            exit 1
+          fi
           
           echo "✅ 混淆完成"
           echo "📊 输出文件信息:"
           ls -lh "$OUTPUT_FILE"
           
-          # 显示文件前10行
-          echo "📄 混淆后文件前10行:"
-          head -n 10 "$OUTPUT_FILE"
-          
           # 文件大小检查
           FILE_SIZE=$(stat -c %s "$OUTPUT_FILE" 2>/dev/null || stat -f %z "$OUTPUT_FILE")
-          echo "📏 文件大小: $FILE_SIZE 字节 ($((FILE_SIZE/1024)) KB)"
+          FILE_SIZE_KB=$((FILE_SIZE/1024))
+          
+          echo "📏 文件大小: $FILE_SIZE 字节 (${FILE_SIZE_KB} KB)"
           
           if [ "$FILE_SIZE" -gt 500000 ]; then
-            echo "⚠️  警告: $OUTPUT_FILE 文件大小超过 500KB，可能导致 Cloudflare CPU 限制错误"
+            echo "⚠️  警告: 输出文件大小超过 500KB，可能导致 Cloudflare CPU 限制错误"
           else
             echo "✅ 文件大小在安全范围内"
           fi
+          
+          echo "📄 混淆后文件预览 (前3行):"
+          head -n 3 "$OUTPUT_FILE"
 
       # 第五步：提交更改
       - name: ✅ 提交混淆结果
@@ -157,22 +193,29 @@ jobs:
         with:
           branch: main
           commit_message: |
-            :arrow_up: 更新 BPB Panel 混淆版本
-            - 自动更新最新 Worker 文件
-            - 代码混淆处理完成
-            - 文件大小: $((FILE_SIZE/1024)) KB
+            :arrow_up: chore: 自动更新 BPB Panel 混淆版本
+            
+            - 自动同步最新 Worker 文件
+            - 完成代码混淆处理
+            - 输出文件大小: ${FILE_SIZE_KB} KB
+            - 构建时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')
           commit_author: 'github-actions[bot] <github-actions[bot]@users.noreply.github.com>'
           commit_user_email: 'actions@github.com'
-          file_pattern: '**/_worker.js'
-          skip_fetch: true
+          file_pattern: |
+            _worker.js
+            origin.js
+          skip_fetch: false
+          status_options: '--untracked-files=no'
 
       # 第六步：完成通知
-      - name: 🎉 构建完成
+      - name: 🎉 构建完成总结
         run: |
           echo "========================================"
-          echo "✅ BPB Panel 混淆构建完成!"
+          echo "🎉 BPB Panel 混淆构建完成!"
+          echo "========================================"
           echo "📁 输入文件: $SOURCE_FILE"
-          echo "📁 输出文件: $OUTPUT_FILE"
-          echo "📏 文件大小: $((FILE_SIZE/1024)) KB"
+          echo "📁 输出文件: $OUTPUT_FILE" 
+          echo "📏 文件大小: $FILE_SIZE_KB KB"
           echo "🕒 完成时间: $(date)"
+          echo "✅ 所有步骤执行成功"
           echo "========================================"
