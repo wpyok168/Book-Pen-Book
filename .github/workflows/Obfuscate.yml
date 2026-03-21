@@ -196,12 +196,12 @@ jobs:
         with:
           branch: main
           commit_message: |
-            :arrow_up: chore: 自动更新 BPB Panel 版本至v${{ env.RELEASE_TAG }}
+            :arrow_up: chore: 自动更新 BPB Panel 版本至${{ env.RELEASE_TAG }}
             
             - 同步最新 Worker 源文件: ${{ env.SOURCE_FILE }}
             - 完成代码混淆处理: ${{ env.OUTPUT_FILE }}
             - 输出文件大小: ${{ env.FILE_SIZE_KB }} KB
-            - 版本: v${{ env.RELEASE_TAG }}
+            - 版本: ${{ env.RELEASE_TAG }}
           commit_author: 'github-actions[bot] <github-actions[bot]@users.noreply.github.com>'
           commit_user_email: 'actions@github.com'
           # 不指定 file_pattern，让 action 自动检测所有更改
