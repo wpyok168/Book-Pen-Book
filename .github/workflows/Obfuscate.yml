@@ -84,6 +84,9 @@ jobs:
           RELEASE_NAME=$(echo "$RELEASE_INFO" | jq -r '.name')
           
           echo "🎯 最新版本: $RELEASE_NAME ($RELEASE_TAG)"
+	  
+	  # ✅ 保存变量
+          echo "RELEASE_TAG=$RELEASE_TAG" >> $GITHUB_ENV
           
           # 查找 worker.js 下载链接
           DOWNLOAD_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name == "worker.js") | .browser_download_url')
@@ -166,6 +169,8 @@ jobs:
           else
             echo "✅ 文件大小在安全范围内"
           fi
+          # ✅ 保存变量
+          echo "FILE_SIZE_KB=$FILE_SIZE_KB" >> $GITHUB_ENV
 
       # 第五步：手动添加并提交文件
       - name: 📝 手动添加文件到 Git
@@ -191,12 +196,12 @@ jobs:
         with:
           branch: main
           commit_message: |
-            :arrow_up: chore: 自动更新 BPB Panel 版本
+            :arrow_up: chore: 自动更新 BPB Panel 版本至v${{ env.RELEASE_TAG }}
             
             - 同步最新 Worker 源文件: ${{ env.SOURCE_FILE }}
             - 完成代码混淆处理: ${{ env.OUTPUT_FILE }}
-            - 输出文件大小: ${FILE_SIZE_KB} KB
-            - 版本: $RELEASE_TAG
+            - 输出文件大小: ${{ env.FILE_SIZE_KB }} KB
+            - 版本: v${{ env.RELEASE_TAG }}
           commit_author: 'github-actions[bot] <github-actions[bot]@users.noreply.github.com>'
           commit_user_email: 'actions@github.com'
           # 不指定 file_pattern，让 action 自动检测所有更改
